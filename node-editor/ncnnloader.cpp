@@ -3,7 +3,7 @@
 #include "fmt1.h"
 #include <functional>
 
-void ncnnLoader::fileToNodes(const std::string& filename, std::vector<Node>& nodes)
+void ncnnLoader::fileToNodes(const std::string& filename, std::deque<Node>& nodes)
 {
     nodes.clear();
     auto str = convert::readStringFromFile(filename);
@@ -45,6 +45,7 @@ void ncnnLoader::fileToNodes(const std::string& filename, std::vector<Node>& nod
             {
                 node.text.pop_back();
             }
+            refreshNodeValues(node);
             nodes.push_back(std::move(node));
         }
     }
@@ -66,43 +67,10 @@ void ncnnLoader::fileToNodes(const std::string& filename, std::vector<Node>& nod
             }
         }
     }
-
-    //set position
-    for (auto& n : nodes)
-    {
-        if (n.position_x == -1 && n.position_y == -1)
-        {
-            if (n.prevs.empty())
-            {
-                n.position_x = 100;
-                n.position_y = 100;
-            }
-            else
-            {
-                n.position_x = n.prevs[0]->position_x;
-                n.position_y = n.prevs[0]->position_y + 150;
-            }
-        }
-        int count = 0;
-        for (auto& n1 : n.nexts)
-        {
-            if (n1->position_x < 0)
-            {
-                n1->position_x = n.position_x + (count++) * 300;
-                if (n.nexts.size() > 1)
-                {
-                    n1->position_x -= 150;
-                }
-            }
-            if (n1->position_y < 0)
-            {
-                n1->position_y = std::max(n1->position_y, n.position_y + 150);
-            }
-        }
-    }
+    calPosition(nodes);
 }
 
-void ncnnLoader::nodesToFile(const std::vector<Node>& nodes, const std::string& filename)
+void ncnnLoader::nodesToFile(const std::deque<Node>& nodes, const std::string& filename)
 {
     std::vector<Node*> nodes_turn;
 
@@ -185,7 +153,12 @@ void ncnnLoader::nodesToFile(const std::vector<Node>& nodes, const std::string& 
                 l += n->title + "_" + n1->title + " ";
             }
         }
-        l += convert::replaceAllSubString(n->text, "\n", " ");
+        for (auto& kv : n->values)
+        {
+            l += kv.first + "=" + kv.second + " ";
+        }
+        l.pop_back();
+        //l += convert::replaceAllSubString(n->text, "\n", " ");
         lines.push_back(std::move(l));
     }
     lines[1] = fmt1::format("{} {}", nodes_turn.size(), blob_count + 1);
@@ -198,24 +171,38 @@ void ncnnLoader::nodesToFile(const std::vector<Node>& nodes, const std::string& 
     convert::writeStringToFile(str, filename);
 }
 
-std::vector<std::string> ncnnLoader::efftiveKeys(const std::string& type)
+void ncnnLoader::refreshNodeValues(Node& n)
 {
-    return {};
-    if (type == "Convolution")
+    auto strs = convert::splitString(n.text, " ");
+    for (auto&str:strs)
     {
-        return { "channel", "window", "stride", "padding" };
+        auto kv = convert::splitString(str, "=");
+        if (kv.size() >= 2)
+        {
+            n.values[kv[0]] = kv[1];
+        }
     }
-    else if (type == "Pooling")
-    {
-        return { "pooltype", "window", "stride", "padding" };
-    }
-    else if (type == "InnerProduct")
-    {
-        return { "node" };
-    }
-    else if (type == "input")
-    {
-        return { "data" };
-    }
-    return {};
+    n.text = "";
 }
+
+//std::vector<std::string> ncnnLoader::efftiveKeys(const std::string& type)
+//{
+//    return { "" };
+//    if (type == "Convolution")
+//    {
+//        return { "channel", "window", "stride", "padding" };
+//    }
+//    else if (type == "Pooling")
+//    {
+//        return { "pooltype", "window", "stride", "padding" };
+//    }
+//    else if (type == "InnerProduct")
+//    {
+//        return { "node" };
+//    }
+//    else if (type == "input")
+//    {
+//        return { "data" };
+//    }
+//    return { "" };
+//}

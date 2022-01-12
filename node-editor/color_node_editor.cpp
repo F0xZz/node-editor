@@ -46,7 +46,7 @@ private:
     };
 
     NodeLoader* loader_ = nullptr;
-    std::vector<Node> nodes_;    //在一次编辑期间,只可增不可减
+    std::deque<Node> nodes_;    //在一次编辑期间,只可增不可减
     std::vector<Link> links_;
     int root_node_id_;
     ImNodesMiniMapLocation minimap_location_;
@@ -55,6 +55,7 @@ private:
     int need_dialog_ = 0;    //1: when exist, 2: openfile to open
     std::string begin_file_;
     int first_run_ = 1;
+    int select_id_ = -1;
 
     Node& createNode()
     {
@@ -246,7 +247,10 @@ public:
     SDL_Event event;
 
     ColorNodeEditor() : nodes_(), root_node_id_(-1),
-        minimap_location_(ImNodesMiniMapLocation_BottomRight) {}
+        minimap_location_(ImNodesMiniMapLocation_BottomRight)
+    {
+        loader_ = create_loader("");
+    }
 
     void show()
     {
@@ -372,6 +376,13 @@ public:
         //        emulate_three_button_mouse ? &ImGui::GetIO().KeyAlt : NULL;
         //}
         //ImGui::Columns(1);
+        {
+            select_id_ = -1;
+            if (ImNodes::NumSelectedNodes() == 1)
+            {
+                ImNodes::GetSelectedNodes(&select_id_);
+            }
+        }
 
         ImNodes::BeginNodeEditor();
 
@@ -442,87 +453,97 @@ public:
             ImGui::PopStyleVar();
         }
 
-        for (auto& node : nodes_)
+        // draw nodes
         {
-            if (node.erased)
+            for (auto& node : nodes_)
             {
-                continue;
-            }
-            auto type = convert::toLowerCase(node.type);
-            if (type == "data" || type == "input")
-            {
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xcc, 0x33, 0x33, 0xff));
-            }
-            else if (type == "fc" || type == "innerproduct")
-            {
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0xcc, 0x99, 0xff));
-            }
-            else if (type.find("conv") != std::string::npos)
-            {
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xcc, 0xff, 0xff, 0xff));
-            }
-            else if (type.find("pool") != std::string::npos)
-            {
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0x99, 0xcc, 0x66, 0xff));
-            }
-            else if (type.find("split") != std::string::npos)
-            {
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0xcc, 0x99, 0xff));
-            }
-            else if (type.find("concat") != std::string::npos)
-            {
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0xff, 0x99, 0xff));
-            }
-            else
-            {
-                ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0x66, 0x66, 0xff));
-            }
-            const float node_width = 200;
-            ImNodes::BeginNode(node.id);
+                if (node.erased)
+                {
+                    continue;
+                }
 
-            ImNodes::BeginNodeTitleBar();
-            ImGui::PushItemWidth(node_width);
-            ImGui::InputText("##hidelabel", &node.title);
-            ImNodes::EndNodeTitleBar();
+                auto type = convert::toLowerCase(node.type);
+                if (type.find("data") != std::string::npos || type.find("input") != std::string::npos)
+                {
+                    ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xcc, 0x33, 0x33, 0xff));
+                }
+                else if (type.find("fc") != std::string::npos || type.find("inner") != std::string::npos)
+                {
+                    ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0xcc, 0x99, 0xff));
+                }
+                else if (type.find("conv") != std::string::npos)
+                {
+                    ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xcc, 0xff, 0xff, 0xff));
+                }
+                else if (type.find("pool") != std::string::npos || type.find("up") != std::string::npos)
+                {
+                    ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0x99, 0xcc, 0x66, 0xff));
+                }
+                else if (type.find("split") != std::string::npos)
+                {
+                    ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0xcc, 0x99, 0xff));
+                }
+                else if (type.find("cat") != std::string::npos)
+                {
+                    ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0xff, 0x99, 0xff));
+                }
+                else
+                {
+                    ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(0xff, 0x66, 0x66, 0xff));
+                }
+                const float node_width = 200;
+                ImNodes::BeginNode(node.id);
 
-            ImNodes::BeginInputAttribute(node.text_id);
-            //if (graph_.num_edges_from_node(node.text_id) == 0ull)
-            ImGui::TextUnformatted("type");
-            ImGui::SameLine();
-            ImGui::PushItemWidth(node_width - ImGui::CalcTextSize("type").x - 8);
-            ImGui::InputText("##type", &node.type);
-            ImGui::PopItemWidth();
-            ImNodes::EndInputAttribute();
-
-            ImNodes::BeginOutputAttribute(node.id);
-            auto v = loader_->efftiveKeys(node.type);
-            if (v.empty())
-            {
+                ImNodes::BeginNodeTitleBar();
                 ImGui::PushItemWidth(node_width);
-                ImGui::InputTextMultiline("##text", &node.text, ImVec2(0, 20));
-            }
-            for (const auto& k : v)
-            {
-                ImGui::TextUnformatted(k.c_str());
-                ImGui::SameLine();
-                ImGui::PushItemWidth(50);
-                ImGui::InputText(("##" + k).c_str(), &node.values[k]);
-                ImGui::PopItemWidth();
-            }
-            {
-                /*ImGui::PushItemWidth(node_width);
-                ImGui::InputTextMultiline("##hidelabel", &node.text, ImVec2(node_width, 50));
-                ImGui::PopItemWidth();*/
-            }
-            /*const float label_width = ImGui::CalcTextSize("next").x;
-            ImGui::Indent(node_width - label_width);
-            ImGui::TextUnformatted("");*/
-            ImNodes::EndInputAttribute();
+                ImGui::InputText("##hidelabel", &node.title);
+                ImNodes::EndNodeTitleBar();
 
-            ImNodes::EndNode();
-            ImNodes::PopColorStyle();
-            //ImNodes::PopColorStyle();
-            //ImNodes::PopColorStyle();
+                ImNodes::BeginInputAttribute(node.text_id);
+                //if (graph_.num_edges_from_node(node.text_id) == 0ull)
+                ImGui::TextUnformatted("type");
+                ImGui::SameLine();
+                ImGui::PushItemWidth(node_width - ImGui::CalcTextSize("type").x - 8);
+                ImGui::InputText("##type", &node.type);
+                ImGui::PopItemWidth();
+                ImNodes::EndInputAttribute();
+
+                if (node.id == select_id_)
+                {
+                    loader_->refreshNodeValues(node);
+                    ImGui::BeginTable("value", 2, 0, { node_width, 0});
+                    ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed, 80);
+                    for (auto& kv : node.values)
+                    {
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(kv.first.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::PushItemWidth(100);
+                        ImGui::InputText(("##" + kv.first).c_str(), &kv.second);
+                        ImGui::PopItemWidth();
+                        ImGui::TableNextRow();
+                    }
+                    ImGui::EndTable();
+                    ImGui::PushItemWidth(node_width);
+                    ImGui::InputTextMultiline("##text", &node.text, ImVec2(0, 20));
+                }
+
+                ImNodes::BeginOutputAttribute(node.id);
+
+                /*const float label_width = ImGui::CalcTextSize("next").x;
+                ImGui::Indent(node_width - label_width);
+                ImGui::TextUnformatted("");*/
+                //ImGui::TextUnformatted("");
+                //ImGui::PushItemWidth(node_width);
+                //ImGui::TextUnformatted("");
+                //ImGui::PopItemWidth();
+                ImNodes::EndOutputAttribute();
+
+                ImNodes::EndNode();
+                ImNodes::PopColorStyle();
+                //ImNodes::PopColorStyle();
+                //ImNodes::PopColorStyle();
+            }
         }
 
         {
@@ -633,9 +654,17 @@ public:
             //ImGui::OpenPopup(u8"退出");
             try_exit();
         }
-        if (need_dialog_ == 2)
+        if (need_dialog_ == 2 || !begin_file_.empty() && first_run_)
         {
-            auto file = openfile();
+            std::string file;
+            if (!begin_file_.empty() && first_run_)
+            {
+                file = begin_file_;
+            }
+            else
+            {
+                file = openfile();
+            }
             //std::string file = "squeezenet_v1.1.param";
             if (!file.empty())
             {
@@ -677,6 +706,11 @@ public:
         }
 
         ImGui::End();
+        first_run_ = 0;
+    }
+    void setBeginFile(const std::string& file)
+    {
+        begin_file_ = file;
     }
 };
 
@@ -699,6 +733,10 @@ void NodeEditorInitialize(int argc, char* argv[])
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 #endif
+    if (argc >= 2)
+    {
+        ex1::color_editor.setBeginFile(argv[1]);
+    }
 }
 
 void NodeEditorShow() { ex1::color_editor.show(); }
